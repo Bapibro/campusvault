@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: 'Inter', sans-serif;
+  background-color: #07090f;
+  color: #e8e8ff;
+  scroll-behavior: smooth;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #07090f 0%, #0f1420 65%, #121827 100%);
+  color: #e8e8ff;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+  color: #ffffff;
+}
+
+.container {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+}
+
+.shadow-card {
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
+}
+
+@layer utilities {
+  .card-border {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .smooth-transition {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .hover-glow {
+    transition: box-shadow 0.4s ease, border-color 0.4s ease;
+  }
+
+  .hover-glow:hover {
+    box-shadow: 0 0 32px rgba(139, 92, 246, 0.25);
+    border-color: rgba(139, 92, 246, 0.5);
+  }
+}
