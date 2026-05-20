@@ -156,6 +156,9 @@ export default function HomePage() {
           </StaggeredContainer>
         </div>
       </RevealSection>
+      <footer className="text-center py-6 text-gray-400 text-sm border-t border-white/10 mt-20">
+        Made with ❤️ by Saurabh Mukherjee
+      </footer>
     </main>
   );
 }
