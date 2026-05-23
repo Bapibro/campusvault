@@ -1,8 +1,12 @@
 'use client';
 
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ChangeEvent, type DragEvent } from 'react';
 import { motion } from 'framer-motion';
+
 import Modal from '@/components/Modal';
+import { auth, db } from '@/lib/firebase';
 import type { Resource } from '@/lib/data';
 
 export default function PurchaseModal({
@@ -14,15 +18,20 @@ export default function PurchaseModal({
   onClose: () => void;
   resource: Resource | null;
 }) {
+  const router = useRouter();
   const [fileName, setFileName] = useState<string>('');
   const [status, setStatus] = useState<'form' | 'submitted'>('form');
   const [dragActive, setDragActive] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (!open) {
       setFileName('');
       setStatus('form');
       setDragActive(false);
+      setIsSaving(false);
+      setErrorMessage('');
     }
   }, [open]);
 
@@ -46,8 +55,38 @@ export default function PurchaseModal({
     }
   };
 
-  const handleSubmit = () => {
-    setStatus('submitted');
+  const handleSubmit = async () => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      setErrorMessage('Please log in to save your purchase.');
+      router.push('/login');
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+
+    try {
+      await addDoc(collection(db, 'users', currentUser.uid, 'purchases'), {
+        title: resource.title,
+        subject: resource.subject,
+        semester: resource.semester,
+        price: resource.price,
+        badge: resource.badge,
+        preview: resource.preview,
+        resourceId: resource.id,
+        purchasedAt: serverTimestamp(),
+        openUrl: '/marketplace',
+      });
+
+      setStatus('submitted');
+    } catch (saveError) {
+      console.error(saveError);
+      setErrorMessage('Unable to save your purchase right now. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -86,7 +125,7 @@ export default function PurchaseModal({
             className="rounded-[1.75rem] border border-emerald-400/20 bg-emerald-500/10 p-6 text-white"
           >
             <p className="font-semibold text-white">Payment submitted.</p>
-            <p className="mt-2 text-sm text-slate-300">Access will be verified shortly.</p>
+            <p className="mt-2 text-sm text-slate-300">Your purchase is now saved in your dashboard.</p>
           </motion.div>
         ) : (
           <div className="space-y-4">
@@ -103,6 +142,13 @@ export default function PurchaseModal({
               <p className="mt-3 text-sm text-slate-300">Drag and drop your payment screenshot here, or use the button below.</p>
               <p className="mt-4 text-sm text-slate-400">{fileName || 'No file selected yet'}</p>
             </div>
+
+            {errorMessage ? (
+              <p className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                {errorMessage}
+              </p>
+            ) : null}
+
             <label className="inline-flex w-full cursor-pointer items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:border-purple-400/40 hover:bg-white/10">
               Select screenshot
               <input type="file" accept="image/*" className="hidden" onChange={handleInputChange} />
@@ -112,9 +158,10 @@ export default function PurchaseModal({
               onClick={handleSubmit}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-fuchsia-600 py-4 text-sm font-semibold text-white transition hover:brightness-110"
+              disabled={isSaving}
+              className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-fuchsia-600 py-4 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              I Have Paid
+              {isSaving ? 'Saving purchase...' : 'I Have Paid'}
             </motion.button>
           </div>
         )}

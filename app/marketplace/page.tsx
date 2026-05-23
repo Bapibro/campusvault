@@ -2,8 +2,11 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { useMemo, useState } from 'react';
-import { resources, subjectCategories, Resource } from '@/lib/data';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { useEffect, useMemo, useState } from 'react';
+
+import { resources as staticResources, subjectCategories, Resource } from '@/lib/data';
+import { db } from '@/lib/firebase';
 import ResourceCard from '@/components/ResourceCard';
 import PurchaseModal from '@/components/PurchaseModal';
 import StaggeredContainer, { StaggeredItem } from '@/components/StaggeredContainer';
@@ -21,6 +24,25 @@ const getResourceType = (resource: Resource) => {
   return 'Notes';
 };
 
+const buildMarketplaceResource = (docSnap: { id: string; data: () => Record<string, unknown> }): Resource => {
+  const data = docSnap.data();
+  const type = String(data.type ?? data.badge ?? 'Notes');
+  const badge = type === 'PYQ' ? 'PYQ' : type === 'Lab Manual' ? 'Lab Manual' : 'Notes';
+  const subject = String(data.subject ?? '');
+  const semester = String(data.semester ?? 'Sem 1');
+  const title = String(data.title ?? 'Untitled resource');
+
+  return {
+    id: docSnap.id,
+    title,
+    subject,
+    semester,
+    price: String(data.price ?? '₹149'),
+    badge,
+    preview: String(data.preview ?? `${badge} resource for ${subject}.`)
+  };
+};
+
 export default function MarketplacePage() {
   const [selectedSubject, setSelectedSubject] = useState('All');
   const [selectedSemester, setSelectedSemester] = useState('All');
@@ -28,11 +50,32 @@ export default function MarketplacePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [liveResources, setLiveResources] = useState<Resource[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'resources'), orderBy('uploadedAt', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setLiveResources(snapshot.docs.map((docSnap) => buildMarketplaceResource({ id: docSnap.id, data: () => docSnap.data() })));
+        setIsLoading(false);
+      },
+      () => {
+        setLiveResources([]);
+        setIsLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const allResources = useMemo(() => [...staticResources, ...liveResources], [liveResources]);
 
   const filteredResources = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
-    return resources.filter((resource) => {
+    return allResources.filter((resource) => {
       const subjectMatch = selectedSubject === 'All' || resource.subject === selectedSubject;
       const semesterMatch = selectedSemester === 'All' || resource.semester === selectedSemester;
       const typeMatch = selectedType === 'All' || getResourceType(resource) === selectedType;
@@ -45,7 +88,7 @@ export default function MarketplacePage() {
 
       return subjectMatch && semesterMatch && typeMatch && searchMatch;
     });
-  }, [searchTerm, selectedSubject, selectedSemester, selectedType]);
+  }, [allResources, searchTerm, selectedSubject, selectedSemester, selectedType]);
 
   const clearFilters = () => {
     setSelectedSubject('All');
@@ -109,14 +152,16 @@ export default function MarketplacePage() {
                       <p className="text-sm font-medium text-slate-200">Resource type</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {resourceTypeFilters.map((resourceType) => (
-                          <button
+                          <motion.button
                             key={resourceType}
                             type="button"
                             onClick={() => setSelectedType(resourceType)}
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.98 }}
                             className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedType === resourceType ? 'bg-purple-600 text-white' : 'bg-slate-950/70 text-slate-300 hover:bg-slate-900'}`}
                           >
                             {resourceType}
-                          </button>
+                          </motion.button>
                         ))}
                       </div>
                     </div>
@@ -124,22 +169,26 @@ export default function MarketplacePage() {
                     <div>
                       <p className="text-sm font-medium text-slate-200">Subject</p>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <button
+                        <motion.button
                           type="button"
                           onClick={() => setSelectedSubject('All')}
+                          whileHover={{ y: -1 }}
+                          whileTap={{ scale: 0.98 }}
                           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedSubject === 'All' ? 'bg-purple-600 text-white' : 'bg-slate-950/70 text-slate-300 hover:bg-slate-900'}`}
                         >
                           All Subjects
-                        </button>
+                        </motion.button>
                         {subjectCategories.map((subject) => (
-                          <button
+                          <motion.button
                             key={subject}
                             type="button"
                             onClick={() => setSelectedSubject(subject)}
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.98 }}
                             className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedSubject === subject ? 'bg-purple-600 text-white' : 'bg-slate-950/70 text-slate-300 hover:bg-slate-900'}`}
                           >
                             {subject}
-                          </button>
+                          </motion.button>
                         ))}
                       </div>
                     </div>
@@ -150,14 +199,16 @@ export default function MarketplacePage() {
                       <p className="text-sm font-medium text-slate-200">Semester</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {semesterFilters.map((semester) => (
-                          <button
+                          <motion.button
                             key={semester}
                             type="button"
                             onClick={() => setSelectedSemester(semester)}
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.98 }}
                             className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedSemester === semester ? 'bg-purple-600 text-white' : 'bg-slate-950/70 text-slate-300 hover:bg-slate-900'}`}
                           >
                             {semester}
-                          </button>
+                          </motion.button>
                         ))}
                       </div>
                     </div>
@@ -177,7 +228,25 @@ export default function MarketplacePage() {
           </div>
 
           <div className="mt-12">
-            {filteredResources.length > 0 ? (
+            {isLoading ? (
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, y: 18 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35, delay: index * 0.05 }}
+                    className="rounded-[1.75rem] border border-white/10 bg-white/5 p-6"
+                  >
+                    <div className="h-4 w-28 animate-pulse rounded-full bg-white/10" />
+                    <div className="mt-5 h-5 w-3/4 animate-pulse rounded-full bg-white/10" />
+                    <div className="mt-4 h-4 w-full animate-pulse rounded-full bg-white/10" />
+                    <div className="mt-4 h-4 w-5/6 animate-pulse rounded-full bg-white/10" />
+                    <div className="mt-6 h-10 w-full animate-pulse rounded-2xl bg-purple-500/10" />
+                  </motion.div>
+                ))}
+              </div>
+            ) : filteredResources.length > 0 ? (
               <StaggeredContainer className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                 {filteredResources.map((resource) => (
                   <StaggeredItem key={resource.id}>

@@ -14,15 +14,17 @@ import {
   serverTimestamp,
   updateDoc
 } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { useEffect, useMemo, useState } from "react";
 
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { subjectCategories } from "@/lib/data";
 
 type ResourceForm = {
   title: string;
   subject: string;
   semester: string;
+  type: string;
   price: string;
   pdfUrl: string;
 };
@@ -32,6 +34,7 @@ type AdminResource = {
   title: string;
   subject: string;
   semester: string;
+  type: string;
   price: string;
   pdfUrl: string;
   createdAt?: Date | null;
@@ -47,6 +50,7 @@ const emptyForm: ResourceForm = {
   title: "",
   subject: subjectCategories[0],
   semester: "Sem 1",
+  type: "Notes",
   price: "",
   pdfUrl: ""
 };
@@ -70,6 +74,11 @@ export default function AdminPage() {
   const [feedback, setFeedback] = useState("");
   const [feedbackTone, setFeedbackTone] = useState<"success" | "error">("success");
   const [isSaving, setIsSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [activeSection, setActiveSection] = useState<"overview" | "manage">("overview");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ResourceForm>(emptyForm);
@@ -93,7 +102,7 @@ export default function AdminPage() {
 
     setResourcesLoading(true);
 
-    const q = query(collection(db, "resources"), orderBy("createdAt", "desc"));
+    const q = query(collection(db, "resources"), orderBy("uploadedAt", "desc"));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -105,8 +114,9 @@ export default function AdminPage() {
               title: String(data.title ?? ""),
               subject: String(data.subject ?? ""),
               semester: String(data.semester ?? ""),
+              type: String(data.type ?? data.badge ?? "Notes"),
               price: String(data.price ?? ""),
-              pdfUrl: String(data.pdfUrl ?? ""),
+              pdfUrl: String(data.pdfURL ?? data.pdfUrl ?? ""),
               createdAt: data.createdAt?.toDate?.() ?? null,
               updatedAt: data.updatedAt?.toDate?.() ?? null
             };
@@ -127,8 +137,8 @@ export default function AdminPage() {
   const summary = useMemo(() => {
     return {
       totalResources: resources.length,
-      notes: resources.filter((resource) => resource.title.toLowerCase().includes("notes") || resource.pdfUrl.toLowerCase().includes("notes")).length,
-      labManuals: resources.filter((resource) => resource.title.toLowerCase().includes("lab") || resource.title.toLowerCase().includes("manual") || resource.pdfUrl.toLowerCase().includes("manual")).length
+      notes: resources.filter((resource) => resource.type === "Notes").length,
+      labManuals: resources.filter((resource) => resource.type === "Lab Manual").length
     };
   }, [resources]);
 
@@ -155,6 +165,10 @@ export default function AdminPage() {
   const resetForm = () => {
     setForm(emptyForm);
     setEditingId(null);
+    setSelectedFile(null);
+    setUploadProgress(0);
+    setUploadStatus("");
+    setUploading(false);
   };
 
   const beginEdit = (resource: AdminResource) => {
@@ -162,14 +176,31 @@ export default function AdminPage() {
       title: resource.title,
       subject: resource.subject,
       semester: resource.semester,
+      type: resource.type || "Notes",
       price: resource.price,
       pdfUrl: resource.pdfUrl
     });
     setEditingId(resource.id);
+    setSelectedFile(null);
+    setUploadProgress(0);
+    setUploadStatus("");
+    setUploading(false);
     setActiveSection("manage");
   };
 
-  const validateForm = () => {
+  const validateFile = (file: File | null) => {
+    if (!file) {
+      return "Please choose a PDF file.";
+    }
+
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      return "Please upload only PDF files.";
+    }
+
+    return "";
+  };
+
+  const validateForm = (pdfUrl: string) => {
     if (!form.title.trim()) {
       return "Title is required.";
     }
@@ -182,16 +213,20 @@ export default function AdminPage() {
       return "Semester is required.";
     }
 
+    if (!form.type.trim()) {
+      return "Type is required.";
+    }
+
     if (!form.price.trim()) {
       return "Price is required.";
     }
 
-    if (!form.pdfUrl.trim()) {
-      return "PDF link is required.";
+    if (!pdfUrl.trim()) {
+      return "Upload a PDF or provide a PDF link.";
     }
 
     try {
-      new URL(form.pdfUrl);
+      new URL(pdfUrl);
     } catch {
       return "Please enter a valid PDF link.";
     }
@@ -199,11 +234,104 @@ export default function AdminPage() {
     return "";
   };
 
+  const saveResource = async (pdfURL: string) => {
+    const payload = {
+      title: form.title.trim(),
+      subject: form.subject,
+      semester: form.semester,
+      type: form.type,
+      price: form.price.trim(),
+      pdfURL,
+      pdfUrl: pdfURL,
+      updatedAt: serverTimestamp()
+    };
+
+    if (editingId) {
+      await updateDoc(doc(db, "resources", editingId), payload);
+      setFeedback("Resource updated successfully.");
+      setFeedbackTone("success");
+      resetForm();
+      return;
+    }
+
+    await addDoc(collection(db, "resources"), {
+      ...payload,
+      uploadedAt: serverTimestamp()
+    });
+
+    setFeedback("Resource uploaded successfully.");
+    setFeedbackTone("success");
+    resetForm();
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const validationError = validateForm();
+    if (selectedFile) {
+      const fileError = validateFile(selectedFile);
+      if (fileError) {
+        setFeedback(fileError);
+        setFeedbackTone("error");
+        return;
+      }
 
+      setUploading(true);
+      setIsSaving(true);
+      setUploadProgress(0);
+      setUploadStatus(`Uploading ${selectedFile.name}...`);
+      setFeedback("");
+
+      const filePath = `resources/${Date.now()}-${selectedFile.name}`;
+      const fileRef = ref(storage, filePath);
+      const uploadTask = uploadBytesResumable(fileRef, selectedFile);
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+        },
+        (error) => {
+          setUploading(false);
+          setIsSaving(false);
+          setUploadProgress(0);
+          setUploadStatus("");
+          setFeedback(error instanceof Error ? error.message : "Upload failed. Please try again.");
+          setFeedbackTone("error");
+        },
+        async () => {
+          try {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            setForm((current) => ({ ...current, pdfUrl: downloadURL }));
+            setUploadStatus("Upload complete. Saving resource metadata...");
+            const validationError = validateForm(downloadURL);
+
+            if (validationError) {
+              setUploading(false);
+              setIsSaving(false);
+              setFeedback(validationError);
+              setFeedbackTone("error");
+              return;
+            }
+
+            await saveResource(downloadURL);
+          } catch (error) {
+            setUploading(false);
+            setIsSaving(false);
+            setFeedback(error instanceof Error ? error.message : "Could not finalize upload.");
+            setFeedbackTone("error");
+          } finally {
+            setUploading(false);
+            setIsSaving(false);
+            setUploadProgress(100);
+          }
+        }
+      );
+
+      return;
+    }
+
+    const validationError = validateForm(form.pdfUrl);
     if (validationError) {
       setFeedback(validationError);
       setFeedbackTone("error");
@@ -214,26 +342,7 @@ export default function AdminPage() {
     setFeedback("");
 
     try {
-      const payload = {
-        title: form.title.trim(),
-        subject: form.subject,
-        semester: form.semester,
-        price: form.price.trim(),
-        pdfUrl: form.pdfUrl.trim(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-
-      if (editingId) {
-        await updateDoc(doc(db, "resources", editingId), payload);
-        setFeedback("Resource updated successfully.");
-      } else {
-        await addDoc(collection(db, "resources"), payload);
-        setFeedback("Resource added successfully.");
-      }
-
-      setFeedbackTone("success");
-      resetForm();
+      await saveResource(form.pdfUrl.trim());
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Could not save the resource.");
       setFeedbackTone("error");
@@ -386,7 +495,7 @@ export default function AdminPage() {
                   <p className="text-sm uppercase tracking-[0.22em] text-purple-200/80">Dashboard overview</p>
                   <h2 className="mt-3 text-2xl font-semibold text-white">Keep CampusVault resources up to date</h2>
                   <p className="mt-3 max-w-2xl text-slate-300">
-                    Add new study materials, edit existing notes, and remove outdated files directly from Firestore.
+                    Upload PDF resources directly to Firebase Storage and publish them instantly to the marketplace.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
@@ -423,7 +532,7 @@ export default function AdminPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm uppercase tracking-[0.2em] text-purple-200/80">Add or edit resource</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">{editingId ? "Edit current resource" : "Upload a new resource"}</h2>
+                    <h2 className="mt-2 text-xl font-semibold text-white">{editingId ? "Edit current resource" : "Upload a new PDF"}</h2>
                   </div>
                   {editingId ? (
                     <button
@@ -479,6 +588,19 @@ export default function AdminPage() {
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
+                      <span className="text-sm text-slate-300">Type</span>
+                      <select
+                        value={form.type}
+                        onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-white outline-none transition focus:border-purple-400/60"
+                      >
+                        <option value="Notes" className="bg-slate-950">Notes</option>
+                        <option value="PYQ" className="bg-slate-950">PYQ</option>
+                        <option value="Lab Manual" className="bg-slate-950">Lab Manual</option>
+                      </select>
+                    </label>
+
+                    <label className="block">
                       <span className="text-sm text-slate-300">Price</span>
                       <input
                         type="text"
@@ -488,25 +610,112 @@ export default function AdminPage() {
                         className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-white outline-none transition focus:border-purple-400/60"
                       />
                     </label>
+                  </div>
 
-                    <label className="block">
-                      <span className="text-sm text-slate-300">PDF link</span>
+                  <label className="block">
+                    <span className="text-sm text-slate-300">PDF link</span>
+                    <input
+                      type="url"
+                      value={form.pdfUrl}
+                      onChange={(event) => setForm((current) => ({ ...current, pdfUrl: event.target.value }))}
+                      placeholder="Upload a PDF or paste a link"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-white outline-none transition focus:border-purple-400/60"
+                    />
+                  </label>
+
+                  <div
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setIsDragging(false);
+                      const droppedFile = event.dataTransfer.files?.[0];
+                      if (!droppedFile) {
+                        return;
+                      }
+
+                      if (!droppedFile.name.toLowerCase().endsWith(".pdf") && droppedFile.type !== "application/pdf") {
+                        setFeedback("Please drop a PDF file only.");
+                        setFeedbackTone("error");
+                        return;
+                      }
+
+                      setSelectedFile(droppedFile);
+                      setUploadProgress(0);
+                      setUploadStatus(`Ready to upload: ${droppedFile.name}`);
+                      setFeedback("PDF selected. Upload will begin when you save.");
+                      setFeedbackTone("success");
+                    }}
+                    className={`rounded-[1.5rem] border border-dashed p-5 text-center transition ${isDragging ? "border-purple-400/80 bg-purple-500/10" : "border-white/10 bg-slate-950/70"}`}
+                  >
+                    <p className="text-sm font-semibold text-white">Drag & drop a PDF here</p>
+                    <p className="mt-2 text-sm text-slate-300">Or browse your device to upload a file directly.</p>
+                    <label className="mt-4 inline-flex cursor-pointer items-center justify-center rounded-2xl bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-purple-400/40">
+                      Choose PDF
                       <input
-                        type="url"
-                        value={form.pdfUrl}
-                        onChange={(event) => setForm((current) => ({ ...current, pdfUrl: event.target.value }))}
-                        placeholder="https://example.com/resource.pdf"
-                        className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-white outline-none transition focus:border-purple-400/60"
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) {
+                            return;
+                          }
+
+                          if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+                            setFeedback("Please upload only PDF files.");
+                            setFeedbackTone("error");
+                            return;
+                          }
+
+                          setSelectedFile(file);
+                          setUploadProgress(0);
+                          setUploadStatus(`Ready to upload: ${file.name}`);
+                          setFeedback("PDF selected. Upload will begin when you save.");
+                          setFeedbackTone("success");
+                        }}
                       />
                     </label>
+
+                    {selectedFile ? (
+                      <p className="mt-3 text-sm text-purple-100">Selected: {selectedFile.name}</p>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-400">No file selected yet.</p>
+                    )}
                   </div>
+
+                  {uploading ? (
+                    <div className="space-y-2 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+                      <div className="flex items-center justify-between text-sm text-slate-200">
+                        <span>{uploadStatus}</span>
+                        <span>{Math.round(uploadProgress)}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-purple-600 to-fuchsia-600 transition-all duration-200"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   <button
                     type="submit"
-                    disabled={isSaving}
+                    disabled={isSaving || uploading}
                     className="w-full rounded-2xl bg-gradient-to-r from-purple-600 to-fuchsia-600 px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    {isSaving ? (editingId ? "Updating..." : "Saving...") : editingId ? "Update resource" : "Add resource"}
+                    {uploading
+                      ? "Uploading PDF..."
+                      : isSaving
+                        ? editingId
+                          ? "Updating..."
+                          : "Saving..."
+                        : editingId
+                          ? "Update resource"
+                          : "Upload and save resource"}
                   </button>
                 </form>
               </motion.section>
@@ -518,7 +727,7 @@ export default function AdminPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm uppercase tracking-[0.2em] text-purple-200/80">Current resources</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Manage published notes</h2>
+                    <h2 className="mt-2 text-xl font-semibold text-white">Manage published PDF resources</h2>
                   </div>
                   {resourcesLoading ? (
                     <span className="rounded-full border border-white/10 px-3 py-1 text-sm text-slate-200">Loading...</span>
@@ -541,7 +750,7 @@ export default function AdminPage() {
                         <div>
                           <p className="text-sm font-semibold text-white">{resource.title}</p>
                           <p className="mt-2 text-sm text-slate-300">
-                            {resource.subject} • {resource.semester} • {resource.price}
+                            {resource.type || "Notes"} • {resource.subject} • {resource.semester} • {resource.price}
                           </p>
                           <a
                             href={resource.pdfUrl}

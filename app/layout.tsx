@@ -9,14 +9,26 @@ export const metadata: Metadata = {
   description: 'A modern student marketplace for notes, lab manuals, and exam prep resources.',
 };
 
-const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '918261814191';
-const whatsappMessage = encodeURIComponent('Hi, I want study resources from CampusVault');
-const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`;
+const whatsappUrl = 'https://wa.me/918261814191?text=Hi%2C%20I%20want%20study%20resources%20from%20CampusVault';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className="relative overflow-x-hidden">
+        <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+          <div
+            className="absolute left-[-5rem] top-24 h-72 w-72 rounded-full bg-gradient-to-br from-fuchsia-500/20 to-violet-500/10 blur-3xl"
+            style={{ animation: 'drift 16s ease-in-out infinite' }}
+          />
+          <div
+            className="absolute right-[-4rem] top-44 h-80 w-80 rounded-full bg-gradient-to-br from-sky-500/15 to-cyan-500/10 blur-3xl"
+            style={{ animation: 'driftAlt 18s ease-in-out infinite' }}
+          />
+          <div
+            className="absolute bottom-20 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-gradient-to-br from-purple-500/10 to-fuchsia-500/5 blur-3xl"
+            style={{ animation: 'drift 20s ease-in-out infinite' }}
+          />
+        </div>
         <SiteHeader />
         <AnimatedPageShell>{children}</AnimatedPageShell>
         <a
