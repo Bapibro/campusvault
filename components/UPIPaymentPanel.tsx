@@ -1,6 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import Image from 'next/image';
+import qrCode from '@/public/assets/images/upi_qr_code.png';
 
 export default function UPIPaymentPanel() {
   return (
@@ -9,21 +11,30 @@ export default function UPIPaymentPanel() {
       whileHover={{ scale: 1.02 }}
       transition={{ duration: 0.35 }}
     >
-      <div className="mb-6 rounded-3xl border border-white/10 bg-slate-900/60 p-6 text-center">
-        <div className="mx-auto mb-4 h-44 w-44 rounded-3xl border border-white/10 bg-gradient-to-br from-violet-600/10 to-fuchsia-600/10 p-6 shadow-glow">
-          <motion.div
-            className="h-full w-full rounded-2xl bg-white/90 bg-[radial-gradient(circle_at_center,_rgba(59,_130,_246,0.2),_transparent_45%)]"
-            animate={{ scale: [1, 1.02, 1] }}
-            transition={{ duration: 3, repeat: Infinity }}
+      <div className="mb-6 rounded-3xl border border-purple-500/50 bg-slate-900/60 p-6 text-center shadow-glow">
+        <div className="relative mx-auto mb-4 h-44 w-44 rounded-3xl border border-purple-500/50 bg-gradient-to-br from-purple-600/20 to-fuchsia-600/10 p-2 shadow-[0_0_20px_rgba(168,85,247,0.5)]">
+          <Image
+            src={qrCode}
+            alt="Paytm UPI QR Code for Mr Saurabh Bhola Mukherjee"
+            className="h-full w-full rounded-2xl object-cover"
+            priority
           />
         </div>
-        <p className="text-sm uppercase tracking-[0.2em] text-purple-200/70">UPI Payment</p>
-        <p className="mt-2 text-lg font-semibold text-white">Scan QR to pay</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-purple-200/70">Mr Saurabh Bhola Mukherjee</p>
+        <p className="mt-2 text-lg font-semibold text-white">Scan & Pay Securely</p>
       </div>
       <div className="space-y-4 text-sm text-slate-300">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-purple-200/70">UPI ID</p>
-          <p className="mt-2 font-medium text-white">campusvault@upi</p>
+          <div className="mt-2 flex items-center gap-2">
+            <p className="font-medium text-white">8261814191@pthdfc</p>
+            <button
+              onClick={() => navigator.clipboard.writeText('8261814191@pthdfc')}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white transition hover:border-purple-400/40 hover:text-purple-100"
+            >
+              Copy
+            </button>
+          </div>
         </div>
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-purple-200/70">Amount</p>
