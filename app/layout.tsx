@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: 'A modern student marketplace for notes, lab manuals, and exam prep resources.',
 };
 
-const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '917000000000';
+const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '918261814191';
 const whatsappMessage = encodeURIComponent('Hi, I want study resources from CampusVault');
 const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`;
 
